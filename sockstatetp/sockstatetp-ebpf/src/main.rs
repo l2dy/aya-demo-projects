@@ -139,10 +139,10 @@ pub fn try_inet_sock_set_state(ctx: TracePointContext) -> Result<i32, i32> {
     });
 
     let event = TcpHandshakeEvent {
-        peer_addr: source_addr,
-        peer_port: source_port,
-        local_addr: destination_addr,
-        local_port: destination_port,
+        peer_addr: destination_addr,
+        peer_port: destination_port,
+        local_addr: source_addr,
+        local_port: source_port,
         seq: 0,
         direction: PacketDirection::TX,
     };

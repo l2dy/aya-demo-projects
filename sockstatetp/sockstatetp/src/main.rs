@@ -81,7 +81,7 @@ async fn main() -> Result<(), anyhow::Error> {
 
                     // Host byte order, only supports LE systems!
                     debug!(
-                        "{}, Source {}:{}, Peer {}:{}",
+                        "{}, Local {}:{}, Peer {}:{}",
                         match event.direction {
                             PacketDirection::TX => "TX",
                             PacketDirection::RX => "RX",
