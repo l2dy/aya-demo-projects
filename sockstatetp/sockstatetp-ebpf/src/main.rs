@@ -101,6 +101,8 @@ pub fn inet_sock_set_state(ctx: TracePointContext) -> i32 {
 }
 
 const AF_INET: c_ushort = 2;
+
+// Offsets from /sys/kernel/debug/tracing/events/sock/inet_sock_set_state
 const NEW_STATE_OFFSET: usize = 20;
 const SPORT_OFFSET: usize = 24;
 const DPORT_OFFSET: usize = 26;
@@ -121,14 +123,14 @@ pub fn try_inet_sock_set_state(ctx: TracePointContext) -> Result<i32, i32> {
         Err(errno) => return Err(errno as i32),
     }
 
-    let source_port = u16::from_be(match unsafe { ctx.read_at(SPORT_OFFSET) } {
+    let source_port = match unsafe { ctx.read_at(SPORT_OFFSET) } {
         Ok(port) => port,
         Err(errno) => return Err(errno as i32),
-    });
-    let destination_port = u16::from_be(match unsafe { ctx.read_at(DPORT_OFFSET) } {
+    };
+    let destination_port = match unsafe { ctx.read_at(DPORT_OFFSET) } {
         Ok(port) => port,
         Err(errno) => return Err(errno as i32),
-    });
+    };
     let source_addr = u32::from_be(match unsafe { ctx.read_at(SADDR_OFFSET) } {
         Ok(addr) => addr,
         Err(errno) => return Err(errno as i32),
