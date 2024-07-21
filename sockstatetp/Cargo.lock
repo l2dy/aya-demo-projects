@@ -501,6 +501,7 @@ dependencies = [
  "anyhow",
  "aya",
  "aya-log",
+ "bytes",
  "clap",
  "env_logger",
  "libc",

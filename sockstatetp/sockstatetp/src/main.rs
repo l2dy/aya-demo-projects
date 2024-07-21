@@ -1,14 +1,15 @@
 use std::net::Ipv4Addr;
 
 use anyhow::Context;
-use aya::maps::RingBuf;
+use aya::maps::AsyncPerfEventArray;
 use aya::programs::{TracePoint, Xdp, XdpFlags};
+use aya::util::online_cpus;
 use aya::{include_bytes_aligned, Bpf};
 use aya_log::BpfLogger;
+use bytes::BytesMut;
 use clap::Parser;
 use log::{debug, info, warn};
 use sockstatetp_common::{PacketDirection, TcpHandshakeEvent};
-use tokio::io::unix::AsyncFd;
 use tokio::{signal, task};
 
 #[derive(Debug, Parser)]
@@ -63,38 +64,40 @@ async fn main() -> Result<(), anyhow::Error> {
         .attach("sock", "inet_sock_set_state")
         .context("failed to attach the tracepoint program")?;
 
-    task::spawn(async move {
-        let map = bpf.map_mut("TCPHSEVENTS").unwrap();
-        let ring_buf = RingBuf::try_from(map)?;
-        let mut async_ring_buf = AsyncFd::new(ring_buf)?;
+    let mut perf_array = AsyncPerfEventArray::try_from(bpf.take_map("TCPHSEVENTS").unwrap())?;
 
-        loop {
-            let mut guard = async_ring_buf.readable_mut().await?;
-            let entry = guard.get_inner_mut();
-            while let Some(event) = entry.next() {
-                let event_ptr = event.as_ptr() as *const TcpHandshakeEvent;
-                let event = unsafe { event_ptr.read_unaligned() };
+    for cpu_id in online_cpus()? {
+        let mut buf = perf_array.open(cpu_id, None)?;
 
-                // Host byte order, only supports LE systems!
-                debug!(
-                    "{}, Source {}:{}, Peer {}:{}",
-                    match event.direction {
-                        PacketDirection::TX => "TX",
-                        PacketDirection::RX => "RX",
-                    },
-                    Ipv4Addr::from(event.local_addr),
-                    event.local_port,
-                    Ipv4Addr::from(event.peer_addr),
-                    event.peer_port
-                );
+        task::spawn(async move {
+            let mut buffers = (0..10)
+                .map(|_| BytesMut::with_capacity(1024))
+                .collect::<Vec<_>>();
+            loop {
+                let events = buf.read_events(&mut buffers).await.unwrap();
+                for buf in buffers.iter_mut().take(events.read) {
+                    let event_ptr = buf.as_ptr() as *const TcpHandshakeEvent;
+                    let event = unsafe { event_ptr.read_unaligned() };
+
+                    // Host byte order, only supports LE systems!
+                    debug!(
+                        "{}, Source {}:{}, Peer {}:{}",
+                        match event.direction {
+                            PacketDirection::TX => "TX",
+                            PacketDirection::RX => "RX",
+                        },
+                        Ipv4Addr::from(event.local_addr),
+                        event.local_port,
+                        Ipv4Addr::from(event.peer_addr),
+                        event.peer_port
+                    );
+                }
             }
 
-            guard.clear_ready();
-        }
-
-        #[allow(unreachable_code)]
-        Ok::<_, anyhow::Error>(())
-    });
+            #[allow(unreachable_code)]
+            Ok::<_, anyhow::Error>(())
+        });
+    }
 
     info!("Waiting for Ctrl-C...");
     signal::ctrl_c().await?;

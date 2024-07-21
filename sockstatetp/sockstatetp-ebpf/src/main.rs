@@ -5,7 +5,7 @@ use aya_ebpf::{
     bindings::{xdp_action, BPF_TCP_SYN_SENT},
     cty::c_ushort,
     macros::{map, tracepoint, xdp},
-    maps::RingBuf,
+    maps::PerfEventArray,
     programs::{TracePointContext, XdpContext},
 };
 use aya_log_ebpf::warn;
@@ -19,7 +19,7 @@ use network_types::{
 };
 
 #[map]
-static TCPHSEVENTS: RingBuf = RingBuf::with_byte_size(1 << 14, 0); // 1 * 16 KiB page size
+static TCPHSEVENTS: PerfEventArray<TcpHandshakeEvent> = PerfEventArray::with_max_entries(1024, 0);
 
 #[xdp]
 pub fn sockstatetp(ctx: XdpContext) -> u32 {
@@ -59,23 +59,15 @@ fn try_sockstatetp(ctx: XdpContext) -> Result<u32, ()> {
         _ => return Ok(xdp_action::XDP_PASS),
     };
 
-    let mut entry = match TCPHSEVENTS.reserve::<TcpHandshakeEvent>(0) {
-        Some(entry) => entry,
-        None => {
-            warn!(&ctx, "ring buffer is full");
-            return Ok(xdp_action::XDP_PASS);
-        }
+    let event = TcpHandshakeEvent {
+        peer_addr: source_addr,
+        peer_port: source_port,
+        local_addr: destination_addr,
+        local_port: destination_port,
+        seq: ack_seq,
+        direction: PacketDirection::RX,
     };
-    let event = entry.as_mut_ptr();
-    unsafe {
-        (*event).peer_addr = source_addr;
-        (*event).peer_port = source_port;
-        (*event).local_addr = destination_addr;
-        (*event).local_port = destination_port;
-        (*event).seq = ack_seq;
-        (*event).direction = PacketDirection::RX;
-    }
-    entry.submit(0);
+    TCPHSEVENTS.output(&ctx, &event, 0);
 
     Ok(xdp_action::XDP_PASS)
 }
@@ -146,23 +138,15 @@ pub fn try_inet_sock_set_state(ctx: TracePointContext) -> Result<i32, i32> {
         Err(errno) => return Err(errno as i32),
     });
 
-    let mut entry = match TCPHSEVENTS.reserve::<TcpHandshakeEvent>(0) {
-        Some(entry) => entry,
-        None => {
-            warn!(&ctx, "ring buffer is full");
-            return Ok(0);
-        }
+    let event = TcpHandshakeEvent {
+        peer_addr: source_addr,
+        peer_port: source_port,
+        local_addr: destination_addr,
+        local_port: destination_port,
+        seq: 0,
+        direction: PacketDirection::TX,
     };
-    let event = entry.as_mut_ptr();
-    unsafe {
-        (*event).peer_addr = source_addr;
-        (*event).peer_port = source_port;
-        (*event).local_addr = destination_addr;
-        (*event).local_port = destination_port;
-        (*event).seq = 0;
-        (*event).direction = PacketDirection::TX;
-    }
-    entry.submit(0);
+    TCPHSEVENTS.output(&ctx, &event, 0);
 
     Ok(0)
 }
