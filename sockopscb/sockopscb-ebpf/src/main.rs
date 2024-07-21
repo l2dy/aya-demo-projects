@@ -71,7 +71,7 @@ fn try_probe_tcp_synack(ctx: XdpContext) -> Result<u32, ()> {
         (*event).peer_port = source_port;
         (*event).local_addr = destination_addr;
         (*event).local_port = destination_port;
-        (*event).seq = ack_seq;
+        (*event).seq = ack_seq - 1;
         (*event).direction = PacketDirection::RX;
     }
     entry.submit(0);

@@ -64,7 +64,7 @@ fn try_sockstatetp(ctx: XdpContext) -> Result<u32, ()> {
         peer_port: source_port,
         local_addr: destination_addr,
         local_port: destination_port,
-        seq: ack_seq,
+        seq: ack_seq - 1,
         direction: PacketDirection::RX,
     };
     TCPHSEVENTS.output(&ctx, &event, 0);
